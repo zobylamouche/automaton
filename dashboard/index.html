@@ -98,6 +98,15 @@ button[aria-pressed="true"] { border-color: var(--cell); color: var(--cell); }
 .banner[data-kind="error"] { border-color: var(--crit); color: var(--crit); background: #1f0a0e; }
 .demo-tag[data-live="1"] { color: var(--cell); border-color: var(--cell); }
 code { font-family: var(--font-data); color: var(--ink); }
+.learn { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+@media (max-width: 760px) { .learn { grid-template-columns: minmax(0, 1fr); } }
+.learn h3 { font-family: var(--font-display); font-weight: 600; font-size: 20px; margin: 0 0 4px; }
+.learn .stat { font-family: var(--font-data); font-size: 12px; color: var(--muted); margin: 0 0 10px; }
+.learn ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; font-size: 13.5px; }
+.learn li { overflow-wrap: anywhere; }
+.learn li small { display: block; font-family: var(--font-data); font-size: 11.5px; color: var(--muted); }
+.learn .ok { color: var(--cell); } .learn .ko { color: var(--crit); }
+.learn .empty { color: var(--muted); }
 .foot { color: var(--muted); font-size: 12.5px; margin: 0; max-width: 80ch; }
 </style>
 
@@ -175,6 +184,15 @@ code { font-family: var(--font-data); color: var(--ink); }
     </div>
   </section>
 
+  <section class="panel" aria-label="Ce qu'il a appris">
+    <p class="label">Ce qu'il a appris · sa mémoire de travail</p>
+    <div class="learn">
+      <div><h3>Erreurs retenues</h3><p class="stat" id="l-stat-f"></p><ul id="l-lessons"></ul></div>
+      <div><h3>Méthodes apprises</h3><p class="stat" id="l-stat-p"></p><ul id="l-procs"></ul></div>
+      <div><h3>Derniers échecs</h3><p class="stat" id="l-stat-e"></p><ul id="l-fails"></ul></div>
+    </div>
+  </section>
+
   <section class="panel" aria-label="Journal">
     <p class="label">Journal</p>
     <ul class="log" id="log"></ul>
@@ -200,6 +218,19 @@ code { font-family: var(--font-data); color: var(--ink); }
   function demoTier(b) { return b <= 0 ? "dead" : b >= 20 ? "normal" : b >= 8 ? "low_compute" : "critical"; }
   function fakeAddr() { var h = "0123456789abcdef", s = "0x"; for (var i = 0; i < 40; i++) s += h[Math.floor(Math.random() * 16)]; return s; }
   function healthy(tier) { return tier === "normal" || tier === "high"; }
+
+  var DEMO_LEARNED = {
+    lessons: [
+      { text: "exec échoue avec ENOTFOUND (3×) : le domaine du client n'existe pas encore", confidence: 0.8 },
+      { text: "write_file échoue avec EACCES (2×) : écrire dans /app est interdit, utiliser /data", confidence: 0.7 }
+    ],
+    procedures: [
+      { name: "livrer-un-logo", description: "Brief, 3 pistes, envoi, facture", success: 4, failure: 1 },
+      { name: "publier-un-site", description: "Générer, tester, déployer", success: 2, failure: 2 }
+    ],
+    failures: [{ at: "", text: "Un client a refusé de payer avant la livraison" }],
+    counts: { facts: 12, procedures: 2, successes: 9, failures: 4 }
+  };
 
   /* ================= DÉMO (simulation) ================= */
   var S, speeds = [1, 4, 16], speedIdx = 0, running = true, income = true;
@@ -240,7 +271,8 @@ code { font-family: var(--font-data); color: var(--ink); }
       name: "Agent n°1", bal: main.bal, tier: demoTier(main.bal), orbHealth: Math.min(1, main.bal / 100),
       earned: S.mainEarned, spent: S.mainSpent, ratio: S.tick < 3 ? null : (S.ewmaCost > 0 ? S.ewmaIn / S.ewmaCost : 0),
       cells: cells, alive: alive, total: S.agents.length, addr: S.addr, phase: S.phase, flash: S.flash,
-      log: S.log.map(function (e) { return { time: clock(e.t), text: e.text, cls: e.cls }; })
+      log: S.log.map(function (e) { return { time: clock(e.t), text: e.text, cls: e.cls }; }),
+      learned: DEMO_LEARNED
     };
   }
 
@@ -262,7 +294,8 @@ code { font-family: var(--font-data); color: var(--ink); }
       earned: d.earnedCents / 100, spent: d.spentCents / 100, ratio: r,
       cells: cells, alive: alive, total: cells.length, addr: d.address || "(adresse inconnue)",
       phase: d.state === "sleeping" ? -1 : livePhase, flash: flash, state: d.state, turns: d.turns,
-      log: (d.events || []).map(function (e) { return { time: hhmm(e.at), text: e.text, cls: e.cls }; })
+      log: (d.events || []).map(function (e) { return { time: hhmm(e.at), text: e.text, cls: e.cls }; }),
+      learned: d.learned || null
     };
   }
   function setBanner(text, kind) {
@@ -341,7 +374,28 @@ code { font-family: var(--font-data); color: var(--ink); }
       var sp = document.createElement("span"); sp.textContent = e.text; if (e.cls) sp.className = e.cls;
       li.appendChild(tm); li.appendChild(sp); el.log.appendChild(li);
     });
+    renderLearned(V.learned);
     if (!V.log.length) { var li0 = document.createElement("li"); li0.textContent = "Rien à afficher pour le moment."; el.log.appendChild(li0); }
+  }
+
+  function fill(id, items, build, emptyText) {
+    var ul = document.getElementById(id); ul.innerHTML = "";
+    if (!items || !items.length) { var li = document.createElement("li"); li.className = "empty"; li.textContent = emptyText; ul.appendChild(li); return; }
+    items.forEach(function (it) { ul.appendChild(build(it)); });
+  }
+  function item(main, sub, cls) {
+    var li = document.createElement("li"), m = document.createElement("span"); m.textContent = main; if (cls) m.className = cls; li.appendChild(m);
+    if (sub) { var s = document.createElement("small"); s.textContent = sub; li.appendChild(s); }
+    return li;
+  }
+  function renderLearned(L) {
+    var c = (L && L.counts) || { facts: 0, procedures: 0, successes: 0, failures: 0 };
+    document.getElementById("l-stat-f").textContent = c.facts + " faits en mémoire";
+    document.getElementById("l-stat-p").textContent = c.procedures + " méthode(s) · " + c.successes + " réussite(s)";
+    document.getElementById("l-stat-e").textContent = c.failures + " échec(s) au total";
+    fill("l-lessons", L && L.lessons, function (x) { return item(x.text, "confiance " + Math.round((x.confidence || 0) * 100) + " %"); }, "Aucune erreur répétée pour le moment.");
+    fill("l-procs", L && L.procedures, function (x) { return item(x.name, x.success + " réussite(s) · " + x.failure + " échec(s) · " + x.description, x.success >= x.failure ? "ok" : "ko"); }, "Aucune méthode apprise pour le moment.");
+    fill("l-fails", L && L.failures, function (x) { return item(x.text, x.at ? hhmm(x.at) : "", "ko"); }, "Aucun échec noté.");
   }
 
   /* ================= Canvas ================= */

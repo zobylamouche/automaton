@@ -76,6 +76,26 @@ function snapshot() {
     }
     events.sort((a, b) => (a.at < b.at ? 1 : -1));
 
+    // Mémoire de l'agent. Chaque requête est isolée : une vieille base peut ne pas avoir ces tables.
+    const safe = (fn, fallback) => { try { return fn(); } catch { return fallback; } };
+    const learned = {
+      lessons: safe(() => db.prepare(
+        "SELECT key, value, confidence FROM semantic_memory WHERE category = 'environment' AND value LIKE '%fails with%' ORDER BY confidence DESC, updated_at DESC LIMIT 6"
+      ).all().map((r) => ({ key: r.key, text: String(r.value).slice(0, 160), confidence: r.confidence })), []),
+      procedures: safe(() => db.prepare(
+        "SELECT name, description, success_count s, failure_count f FROM procedural_memory ORDER BY (success_count - failure_count) DESC, updated_at DESC LIMIT 5"
+      ).all().map((r) => ({ name: r.name, description: String(r.description).slice(0, 120), success: r.s, failure: r.f })), []),
+      failures: safe(() => db.prepare(
+        "SELECT summary, created_at t FROM episodic_memory WHERE outcome = 'failure' ORDER BY created_at DESC LIMIT 5"
+      ).all().map((r) => ({ at: r.t.replace(" ", "T") + "Z", text: String(r.summary).slice(0, 140) })), []),
+      counts: {
+        facts: safe(() => sum("SELECT COUNT(*) v FROM semantic_memory"), 0),
+        procedures: safe(() => sum("SELECT COUNT(*) v FROM procedural_memory"), 0),
+        successes: safe(() => sum("SELECT COUNT(*) v FROM episodic_memory WHERE outcome = 'success'"), 0),
+        failures: safe(() => sum("SELECT COUNT(*) v FROM episodic_memory WHERE outcome = 'failure'"), 0),
+      },
+    };
+
     const children = db.prepare("SELECT name, status, funded_amount_cents f FROM children ORDER BY created_at").all();
     const lastTurn = db.prepare("SELECT timestamp, tool_calls tc FROM turns ORDER BY timestamp DESC LIMIT 1").get();
 
@@ -96,6 +116,7 @@ function snapshot() {
       spent24Cents: spent24,
       children: children.map((c) => ({ name: c.name, status: c.status, fundedCents: c.f })),
       events: events.slice(0, 8),
+      learned,
     } };
   } finally {
     db.close();
