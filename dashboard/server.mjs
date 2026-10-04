@@ -3,7 +3,7 @@
  * Automaton dashboard server (read-only).
  *
  * Serves dashboard/index.html and a JSON snapshot of the agent's state at
- * /api/state, read from the agent's SQLite file (default ~/.automaton/state.db).
+ * /api/state, read from the agent's SQLite file (default: $HOME/.automaton/state.db, or /root/.automaton on Windows).
  * Binds to 127.0.0.1 by default (--host to change) and never writes to the database.
  *
  *   node dashboard/server.mjs [--db <path>] [--port <n>] [--host <addr>]
@@ -22,7 +22,17 @@ const opt = (name, fallback) => {
   return i >= 0 && args[i + 1] ? args[i + 1] : fallback;
 };
 const expand = (p) => (p.startsWith("~") ? path.join(os.homedir(), p.slice(1)) : p);
-const DB_PATH = path.resolve(expand(opt("db", process.env.AUTOMATON_DB || "~/.automaton/state.db")));
+// L'agent range ses données dans $HOME/.automaton, ou /root/.automaton si HOME n'existe pas.
+// Sous Windows, HOME n'existe pas : le dossier est donc C:\root\.automaton. On teste les deux endroits.
+function defaultDbPath() {
+  const candidates = [
+    path.resolve(process.env.HOME || "/root", ".automaton", "state.db"),
+    path.join(os.homedir(), ".automaton", "state.db"),
+  ];
+  return candidates.find((c) => fs.existsSync(c)) || candidates[0];
+}
+const explicitDb = opt("db", process.env.AUTOMATON_DB || "");
+const DB_PATH = explicitDb ? path.resolve(expand(explicitDb)) : defaultDbPath();
 const PORT = Number(opt("port", process.env.PORT || 4173));
 // 127.0.0.1 par défaut. Dans Docker on passe 0.0.0.0 ; c'est docker-compose qui limite l'accès à la machine locale.
 const HOST = opt("host", process.env.HOST || "127.0.0.1");
