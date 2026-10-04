@@ -1,0 +1,499 @@
+<title>Automaton Vivant</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Mise en page : une grande cellule centrale (l'agent) à gauche, instruments à droite, grille de la lignée en bas. */
+:root {
+  --bg: #04100f;
+  --panel: #081c1b;
+  --line: #134340;
+  --ink: #dcf6f1;
+  --muted: #7faaa4;
+  --cell: #3fe6d0;
+  --cell-deep: #0e6f66;
+  --warn: #ffb347;
+  --crit: #ff4d5e;
+  --font-display: "Barlow Condensed", "Arial Narrow", sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, sans-serif;
+  --font-data: "IBM Plex Mono", ui-monospace, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body {
+  background: var(--bg);
+  background-image: radial-gradient(circle at 20% 0%, #0a2a28 0%, transparent 55%);
+  color: var(--ink);
+  font-family: var(--font-body);
+  padding-inline: 16px;
+  padding-block: 20px 40px;
+}
+.wrap { max-width: 1100px; margin-inline: auto; display: grid; gap: 16px; }
+header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 16px; }
+h1 { font-family: var(--font-display); font-weight: 700; font-size: 34px; letter-spacing: .02em; margin: 0; text-wrap: balance; }
+.demo-tag { font-family: var(--font-data); font-size: 12px; color: var(--warn); border: 1px solid var(--warn); border-radius: 4px; padding: 3px 8px; }
+.sub { color: var(--muted); font-size: 14px; margin: 4px 0 0; max-width: 60ch; }
+
+.main { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 16px; }
+@media (max-width: 760px) { .main { grid-template-columns: minmax(0, 1fr); } }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; min-width: 0; }
+.label { font-family: var(--font-data); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin: 0 0 10px; }
+
+.stage { display: grid; gap: 8px; justify-items: center; }
+.orb-box { width: 100%; max-width: 440px; aspect-ratio: 1; position: relative; }
+canvas { display: block; width: 100%; height: 100%; }
+.balance-label { font-family: var(--font-data); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+.balance { font-family: var(--font-display); font-weight: 700; font-size: 64px; line-height: 1; font-variant-numeric: tabular-nums; color: var(--warn); }
+.balance[data-tier="dead"] { color: var(--crit); }
+.balance[data-tier="critical"] { color: var(--crit); }
+.balance[data-tier="normal"] { color: var(--ink); }
+.pill { font-family: var(--font-data); font-size: 12px; border-radius: 999px; padding: 4px 12px; border: 1px solid currentColor; }
+.pill[data-tier="normal"] { color: var(--cell); }
+.pill[data-tier="low_compute"] { color: var(--warn); }
+.pill[data-tier="critical"], .pill[data-tier="dead"] { color: var(--crit); }
+.motto { font-family: var(--font-display); font-weight: 600; font-size: 22px; margin: 0; color: var(--ink); }
+
+.side { display: grid; gap: 16px; align-content: start; }
+.wallet { display: grid; gap: 6px; }
+.addr { font-family: var(--font-data); font-size: 13px; color: var(--cell); overflow-wrap: anywhere; }
+.wallet-note { color: var(--muted); font-size: 13px; margin: 0; }
+.gauge svg { width: 100%; max-width: 300px; display: block; margin-inline: auto; }
+.gauge text { font-family: var(--font-data); font-size: 8px; fill: var(--muted); }
+.gauge-read { text-align: center; font-family: var(--font-display); font-weight: 600; font-size: 22px; margin: 0; }
+
+.bars { display: grid; gap: 10px; }
+.bar-row { display: grid; grid-template-columns: 78px minmax(0, 1fr) 72px; align-items: center; gap: 10px; font-size: 13px; }
+.track { height: 10px; background: #0b2a28; border-radius: 6px; overflow: hidden; }
+.fill { height: 100%; width: 0; border-radius: 6px; transition: width .4s; }
+.fill.gain { background: var(--warn); }
+.fill.cost { background: var(--crit); }
+.num { font-family: var(--font-data); text-align: right; font-variant-numeric: tabular-nums; }
+.net { font-family: var(--font-data); font-size: 13px; margin: 2px 0 0; }
+.net strong { color: var(--cell); }
+.net strong.neg { color: var(--crit); }
+
+.log { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-family: var(--font-data); font-size: 12.5px; }
+.log li { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 8px; color: var(--ink); }
+.log time { color: var(--muted); }
+.log .gain { color: var(--warn); }
+.log .loss { color: var(--crit); }
+.log .born { color: var(--cell); }
+
+.lineage { display: grid; grid-template-columns: minmax(0, 260px) minmax(0, 1fr); gap: 20px; align-items: center; }
+@media (max-width: 640px) { .lineage { grid-template-columns: minmax(0, 1fr); } }
+.grid-box { width: 100%; max-width: 260px; aspect-ratio: 1; }
+.count { font-family: var(--font-display); font-weight: 700; font-size: 56px; line-height: 1; margin: 0; }
+.count span { font-family: var(--font-data); font-weight: 400; font-size: 14px; color: var(--muted); margin-left: 6px; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; color: var(--muted); margin: 10px 0 0; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
+
+.controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+button {
+  font-family: var(--font-body); font-size: 14px; font-weight: 500; color: var(--ink);
+  background: #0c2928; border: 1px solid var(--line); border-radius: 8px; padding: 9px 14px; cursor: pointer;
+}
+button:hover { border-color: var(--cell); }
+button:focus-visible { outline: 2px solid var(--cell); outline-offset: 2px; }
+button[aria-pressed="true"] { border-color: var(--cell); color: var(--cell); }
+.banner { margin: 0; padding: 10px 14px; border-radius: 8px; font-size: 14px; border: 1px solid var(--warn); color: var(--warn); background: #1b1608; }
+.banner[data-kind="error"] { border-color: var(--crit); color: var(--crit); background: #1f0a0e; }
+.demo-tag[data-live="1"] { color: var(--cell); border-color: var(--cell); }
+code { font-family: var(--font-data); color: var(--ink); }
+.learn { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+@media (max-width: 760px) { .learn { grid-template-columns: minmax(0, 1fr); } }
+.learn h3 { font-family: var(--font-display); font-weight: 600; font-size: 20px; margin: 0 0 4px; }
+.learn .stat { font-family: var(--font-data); font-size: 12px; color: var(--muted); margin: 0 0 10px; }
+.learn ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; font-size: 13.5px; }
+.learn li { overflow-wrap: anywhere; }
+.learn li small { display: block; font-family: var(--font-data); font-size: 11.5px; color: var(--muted); }
+.learn .ok { color: var(--cell); } .learn .ko { color: var(--crit); }
+.learn .empty { color: var(--muted); }
+.foot { color: var(--muted); font-size: 12.5px; margin: 0; max-width: 80ch; }
+</style>
+
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Automaton</h1>
+      <p class="sub">Un agent qui paie chaque pensée avec son propre argent. S'il tombe à zéro, il s'arrête.</p>
+    </div>
+    <span class="demo-tag" id="mode-tag" data-live="0">SIMULATION · données fictives</span>
+  </header>
+
+  <p class="banner" id="banner" hidden></p>
+  <section class="controls" id="controls" aria-label="Commandes de la simulation">
+    <button id="btn-play" aria-pressed="false">Pause</button>
+    <button id="btn-speed" type="button">Vitesse ×1</button>
+    <button id="btn-income" aria-pressed="false">Couper les revenus</button>
+    <button id="btn-reset" type="button">Relancer</button>
+  </section>
+
+  <div class="main">
+    <section class="panel stage" aria-label="L'agent">
+      <p class="label" style="justify-self:start" id="agent-name">Agent n°1</p>
+      <div class="orb-box"><canvas id="orb" role="img" aria-label="Cellule lumineuse représentant l'agent, entourée de Penser, Agir, Observer"></canvas></div>
+      <div class="balance-label">Solde</div>
+      <div class="balance" id="balance" data-tier="normal">0,00 $</div>
+      <span class="pill" id="tier" data-tier="normal">normal</span>
+      <p class="motto">Zéro humain dans la boucle.</p>
+    </section>
+
+    <div class="side">
+      <section class="panel wallet" aria-label="Portefeuille">
+        <p class="label">Son propre portefeuille</p>
+        <div class="addr" id="addr"></div>
+        <p class="wallet-note" id="wallet-note">Créé automatiquement au premier démarrage (adresse fictive ici).</p>
+      </section>
+
+      <section class="panel gauge" aria-label="Revenus contre coûts">
+        <p class="label">Revenus ÷ coûts (tous les agents)</p>
+        <svg viewBox="0 0 200 156" role="img" aria-label="Jauge de rentabilité">
+          <path id="arc-low" fill="none" stroke-width="8" stroke-linecap="round" stroke="#ff4d5e" opacity=".75"/>
+          <path id="arc-high" fill="none" stroke-width="8" stroke-linecap="round" stroke="#3fe6d0" opacity=".75"/>
+          <line id="needle" x1="100" y1="100" x2="100" y2="30" stroke="#ffb347" stroke-width="3" stroke-linecap="round"/>
+          <circle cx="100" cy="100" r="6" fill="#ffb347"/>
+          <text x="100" y="11" text-anchor="middle">équilibre</text>
+          <text x="32" y="150" text-anchor="middle">0</text>
+          <text x="168" y="150" text-anchor="middle">×2</text>
+        </svg>
+        <p class="gauge-read" id="gauge-read">—</p>
+      </section>
+
+      <section class="panel" aria-label="Gagné et dépensé">
+        <p class="label">Gagné et dépensé (depuis le début)</p>
+        <div class="bars">
+          <div class="bar-row"><span>Gagné</span><div class="track"><div class="fill gain" id="bar-gain"></div></div><span class="num" id="num-gain">0 $</span></div>
+          <div class="bar-row"><span>Dépensé</span><div class="track"><div class="fill cost" id="bar-cost"></div></div><span class="num" id="num-cost">0 $</span></div>
+        </div>
+        <p class="net" id="net"></p>
+      </section>
+    </div>
+  </div>
+
+  <section class="panel" aria-label="Lignée">
+    <p class="label">Lignée · l'agent et ses enfants</p>
+    <div class="lineage">
+      <div class="grid-box"><canvas id="grid" role="img" aria-label="Grille des agents vivants et morts"></canvas></div>
+      <div>
+        <p class="count"><span id="n-alive">1</span><span>agents vivants sur <b id="n-total">1</b> nés</span></p>
+        <p class="legend">
+          <span><i style="background:var(--cell)"></i>vivant</span>
+          <span><i style="background:#3a1a20"></i>mort</span>
+          <span><i style="border:1px solid #1d4a46"></i>pas encore né</span>
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" aria-label="Ce qu'il a appris">
+    <p class="label">Ce qu'il a appris · sa mémoire de travail</p>
+    <div class="learn">
+      <div><h3>Erreurs retenues</h3><p class="stat" id="l-stat-f"></p><ul id="l-lessons"></ul></div>
+      <div><h3>Méthodes apprises</h3><p class="stat" id="l-stat-p"></p><ul id="l-procs"></ul></div>
+      <div><h3>Derniers échecs</h3><p class="stat" id="l-stat-e"></p><ul id="l-fails"></ul></div>
+    </div>
+  </section>
+
+  <section class="panel" aria-label="Journal">
+    <p class="label">Journal</p>
+    <ul class="log" id="log"></ul>
+  </section>
+
+  <p class="foot" id="foot-demo">Simulation : chiffres, seuils et adresse inventés. Lancez <code>node dashboard/server.mjs</code> sur la machine de l'agent, et cette page affichera ses vraies données.</p>
+  <p class="foot" id="foot-live" hidden>Lecture seule. Gagné = paiements reçus. Dépensé = coût des réflexions + paiements sortants. La jauge compare les dernières 24 h.</p>
+</div>
+
+<script>
+(function () {
+  var MAX_AGENTS = 256;
+  var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var mode = "demo";          // "demo" ou "live"
+  var V;                      // ce que l'écran affiche, rempli par la démo ou par le serveur
+
+  function rnd(a, b) { return a + Math.random() * (b - a); }
+  function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+  function money(n) { return n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " $"; }
+  function money0(n) { return "+" + Math.round(n).toLocaleString("fr-FR") + " $"; }
+  function clock(t) { var m = Math.floor(t / 60), s = t % 60; return (m < 10 ? "0" : "") + m + ":" + (s < 10 ? "0" : "") + s; }
+  function hhmm(iso) { var d = new Date(iso); return isNaN(d) ? "--:--" : d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }); }
+  function demoTier(b) { return b <= 0 ? "dead" : b >= 20 ? "normal" : b >= 8 ? "low_compute" : "critical"; }
+  function fakeAddr() { var h = "0123456789abcdef", s = "0x"; for (var i = 0; i < 40; i++) s += h[Math.floor(Math.random() * 16)]; return s; }
+  function healthy(tier) { return tier === "normal" || tier === "high"; }
+
+  var DEMO_LEARNED = {
+    lessons: [
+      { text: "exec échoue avec ENOTFOUND (3×) : le domaine du client n'existe pas encore", confidence: 0.8 },
+      { text: "write_file échoue avec EACCES (2×) : écrire dans /app est interdit, utiliser /data", confidence: 0.7 }
+    ],
+    procedures: [
+      { name: "livrer-un-logo", description: "Brief, 3 pistes, envoi, facture", success: 4, failure: 1 },
+      { name: "publier-un-site", description: "Générer, tester, déployer", success: 2, failure: 2 }
+    ],
+    failures: [{ at: "", text: "Un client a refusé de payer avant la livraison" }],
+    counts: { facts: 12, procedures: 2, successes: 9, failures: 4 }
+  };
+
+  /* ================= DÉMO (simulation) ================= */
+  var S, speeds = [1, 4, 16], speedIdx = 0, running = true, income = true;
+  function reset() {
+    S = { t: 0, tick: 0, agents: [], nextId: 1, log: [], mainEarned: 0, mainSpent: 0, ewmaIn: 0, ewmaCost: 0, phase: 0, addr: fakeAddr(), flash: 0 };
+    spawn(100, 0);
+    addLog("Réveil. Crédit de départ : 100,00 $", "born");
+    syncDemo();
+  }
+  function spawn(bal, parent) { var a = { id: S.nextId++, bal: bal, alive: true, parent: parent }; S.agents.push(a); return a; }
+  function addLog(text, cls) { S.log.unshift({ t: S.t, text: text, cls: cls || "" }); if (S.log.length > 7) S.log.pop(); }
+  function step() {
+    S.t += 1; S.tick += 1; S.phase = (S.phase + 1) % 3;
+    var inSum = 0, costSum = 0, count = S.agents.length;
+    for (var i = 0; i < count; i++) {
+      var a = S.agents[i];
+      if (!a.alive) continue;
+      var cost = rnd(0.08, 0.34); a.bal -= cost; costSum += cost;
+      if (i === 0) S.mainSpent += cost;
+      if (income && Math.random() < 0.075) {
+        var gain = pick([12, 20, 25, 40, 40, 60]); a.bal += gain; inSum += gain;
+        if (i === 0) { S.mainEarned += gain; addLog("Client : « crée mon logo ». Paiement reçu " + money0(gain), "gain"); S.flash = 1; }
+      }
+      if (a.bal >= 70 && S.agents.length < MAX_AGENTS && Math.random() < 0.3) {
+        a.bal -= 25; var child = spawn(25, a.id);
+        if (i === 0) addLog("Réplication : agent n°" + child.id + " financé avec 25,00 $", "born");
+      }
+      if (a.bal <= 0) { a.bal = 0; a.alive = false; if (i === 0) addLog("Solde à zéro. L'agent n°1 s'arrête.", "loss"); }
+    }
+    S.ewmaIn += (inSum - S.ewmaIn) * 0.08; S.ewmaCost += (costSum - S.ewmaCost) * 0.08;
+    if (S.tick % 5 === 0 && S.agents[0].alive) addLog("Inférence et serveur : -" + rnd(0.6, 1.6).toFixed(2).replace(".", ",") + " $", "loss");
+    syncDemo();
+  }
+  function syncDemo() {
+    var main = S.agents[0], alive = 0, cells = [];
+    for (var i = 0; i < S.agents.length; i++) { var a = S.agents[i]; if (a.alive) alive++; cells.push({ alive: a.alive, k: Math.min(1, a.bal / 60) }); }
+    V = {
+      name: "Agent n°1", bal: main.bal, tier: demoTier(main.bal), orbHealth: Math.min(1, main.bal / 100),
+      earned: S.mainEarned, spent: S.mainSpent, ratio: S.tick < 3 ? null : (S.ewmaCost > 0 ? S.ewmaIn / S.ewmaCost : 0),
+      cells: cells, alive: alive, total: S.agents.length, addr: S.addr, phase: S.phase, flash: S.flash,
+      log: S.log.map(function (e) { return { time: clock(e.t), text: e.text, cls: e.cls }; }),
+      learned: DEMO_LEARNED
+    };
+  }
+
+  /* ================= EN DIRECT (serveur local) ================= */
+  var lastEarned = null, livePhase = 0;
+  function syncLive(d) {
+    var cents = d.creditsCents, bal = cents == null ? 0 : cents / 100, flash = V ? V.flash : 0;
+    if (lastEarned != null && d.earnedCents > lastEarned) flash = 1;
+    lastEarned = d.earnedCents;
+    livePhase = (livePhase + 1) % 3;
+    var cells = [{ alive: d.tier !== "dead", k: Math.min(1, bal / 5) }];
+    var alive = cells[0].alive ? 1 : 0;
+    (d.children || []).forEach(function (c) {
+      var ok = c.status !== "dead"; cells.push({ alive: ok, k: Math.min(1, (c.fundedCents || 0) / 500) }); if (ok) alive++;
+    });
+    var r = d.spent24Cents > 0 ? d.earned24Cents / d.spent24Cents : (d.earned24Cents > 0 ? 2 : null);
+    V = {
+      name: d.name, bal: bal, tier: d.tier || "critical", noBalance: cents == null, orbHealth: Math.min(1, bal / 5),
+      earned: d.earnedCents / 100, spent: d.spentCents / 100, ratio: r,
+      cells: cells, alive: alive, total: cells.length, addr: d.address || "(adresse inconnue)",
+      phase: d.state === "sleeping" ? -1 : livePhase, flash: flash, state: d.state, turns: d.turns,
+      log: (d.events || []).map(function (e) { return { time: hhmm(e.at), text: e.text, cls: e.cls }; }),
+      learned: d.learned || null
+    };
+  }
+  function setBanner(text, kind) {
+    var b = document.getElementById("banner");
+    b.hidden = !text; b.textContent = text || ""; b.dataset.kind = kind || "";
+  }
+  function setMode(m) {
+    mode = m;
+    var tag = document.getElementById("mode-tag"), live = m === "live";
+    tag.textContent = live ? "EN DIRECT · données réelles" : "SIMULATION · données fictives";
+    tag.dataset.live = live ? "1" : "0";
+    document.getElementById("controls").hidden = live;
+    document.getElementById("foot-demo").hidden = live;
+    document.getElementById("foot-live").hidden = !live;
+    document.getElementById("wallet-note").textContent = live
+      ? "Adresse lue dans la base de l'agent."
+      : "Créé automatiquement au premier démarrage (adresse fictive ici).";
+  }
+  function poll() {
+    fetch("api/state", { cache: "no-store" }).then(function (res) {
+      if (res.status === 503) {
+        return res.json().then(function (j) {
+          setMode("live"); setBanner("En attente de l'agent. Aucune base trouvée ici : " + (j.dbPath || "?"), "wait");
+          if (!V || V.waiting !== true) { reset(); V.waiting = true; V.name = "En attente"; V.log = []; }
+          render(); drawGrid();
+        });
+      }
+      if (!res.ok) throw new Error("http " + res.status);
+      return res.json().then(function (d) {
+        if (mode !== "live") setMode("live");
+        setBanner(d.creditsBalanceMissing || d.creditsCents == null ? "Solde pas encore connu : l'agent ne l'a pas encore enregistré." : "", "wait");
+        syncLive(d); render(); drawGrid();
+      });
+    }).catch(function () {
+      if (mode === "live") { setBanner("Le serveur local ne répond plus. Relancez : node dashboard/server.mjs", "error"); }
+    });
+  }
+
+  /* ================= Jauge ================= */
+  function polar(a, r) { var rad = a * Math.PI / 180; return [100 + r * Math.cos(rad), 100 + r * Math.sin(rad)]; }
+  function arc(a0, a1, r) {
+    var p0 = polar(a0, r), p1 = polar(a1, r);
+    return "M" + p0[0].toFixed(2) + " " + p0[1].toFixed(2) + " A" + r + " " + r + " 0 " + ((a1 - a0) > 180 ? 1 : 0) + " 1 " + p1[0].toFixed(2) + " " + p1[1].toFixed(2);
+  }
+  document.getElementById("arc-low").setAttribute("d", arc(150, 268, 78));
+  document.getElementById("arc-high").setAttribute("d", arc(272, 390, 78));
+
+  /* ================= Textes ================= */
+  var el = {
+    name: document.getElementById("agent-name"), addr: document.getElementById("addr"),
+    balance: document.getElementById("balance"), tier: document.getElementById("tier"),
+    gain: document.getElementById("bar-gain"), cost: document.getElementById("bar-cost"),
+    nGain: document.getElementById("num-gain"), nCost: document.getElementById("num-cost"),
+    net: document.getElementById("net"), log: document.getElementById("log"),
+    alive: document.getElementById("n-alive"), total: document.getElementById("n-total"),
+    needle: document.getElementById("needle"), gaugeRead: document.getElementById("gauge-read")
+  };
+  function render() {
+    el.name.textContent = V.name; el.addr.textContent = V.addr;
+    el.balance.textContent = V.noBalance ? "—" : money(V.bal);
+    el.balance.dataset.tier = V.tier; el.tier.textContent = V.tier; el.tier.dataset.tier = V.tier;
+    var mx = Math.max(V.earned, V.spent, 1);
+    el.gain.style.width = (V.earned / mx * 100) + "%"; el.cost.style.width = (V.spent / mx * 100) + "%";
+    el.nGain.textContent = "+" + Math.round(V.earned) + " $"; el.nCost.textContent = "-" + Math.round(V.spent) + " $";
+    var net = V.earned - V.spent;
+    el.net.innerHTML = "En " + (net >= 0 ? "positif" : "négatif") + " : <strong class=\"" + (net >= 0 ? "" : "neg") + "\">" + (net >= 0 ? "+" : "-") + Math.abs(Math.round(net)) + " $</strong>";
+    var ratio = V.ratio, shown = ratio == null ? 0 : Math.min(ratio, 2);
+    var p = polar(150 + 240 * (shown / 2), 68);
+    el.needle.setAttribute("x2", p[0].toFixed(2)); el.needle.setAttribute("y2", p[1].toFixed(2));
+    el.gaugeRead.textContent = ratio == null ? "—" : ratio > 2 ? "plus de ×2" : "×" + ratio.toFixed(2).replace(".", ",");
+    el.alive.textContent = V.alive; el.total.textContent = V.total;
+    el.log.innerHTML = "";
+    V.log.forEach(function (e) {
+      var li = document.createElement("li");
+      var tm = document.createElement("time"); tm.textContent = e.time;
+      var sp = document.createElement("span"); sp.textContent = e.text; if (e.cls) sp.className = e.cls;
+      li.appendChild(tm); li.appendChild(sp); el.log.appendChild(li);
+    });
+    renderLearned(V.learned);
+    if (!V.log.length) { var li0 = document.createElement("li"); li0.textContent = "Rien à afficher pour le moment."; el.log.appendChild(li0); }
+  }
+
+  function fill(id, items, build, emptyText) {
+    var ul = document.getElementById(id); ul.innerHTML = "";
+    if (!items || !items.length) { var li = document.createElement("li"); li.className = "empty"; li.textContent = emptyText; ul.appendChild(li); return; }
+    items.forEach(function (it) { ul.appendChild(build(it)); });
+  }
+  function item(main, sub, cls) {
+    var li = document.createElement("li"), m = document.createElement("span"); m.textContent = main; if (cls) m.className = cls; li.appendChild(m);
+    if (sub) { var s = document.createElement("small"); s.textContent = sub; li.appendChild(s); }
+    return li;
+  }
+  function renderLearned(L) {
+    var c = (L && L.counts) || { facts: 0, procedures: 0, successes: 0, failures: 0 };
+    document.getElementById("l-stat-f").textContent = c.facts + " faits en mémoire";
+    document.getElementById("l-stat-p").textContent = c.procedures + " méthode(s) · " + c.successes + " réussite(s)";
+    document.getElementById("l-stat-e").textContent = c.failures + " échec(s) au total";
+    fill("l-lessons", L && L.lessons, function (x) { return item(x.text, "confiance " + Math.round((x.confidence || 0) * 100) + " %"); }, "Aucune erreur répétée pour le moment.");
+    fill("l-procs", L && L.procedures, function (x) { return item(x.name, x.success + " réussite(s) · " + x.failure + " échec(s) · " + x.description, x.success >= x.failure ? "ok" : "ko"); }, "Aucune méthode apprise pour le moment.");
+    fill("l-fails", L && L.failures, function (x) { return item(x.text, x.at ? hhmm(x.at) : "", "ko"); }, "Aucun échec noté.");
+  }
+
+  /* ================= Canvas ================= */
+  function fit(canvas) {
+    var r = canvas.getBoundingClientRect(), d = Math.min(window.devicePixelRatio || 1, 2);
+    var w = Math.max(1, Math.round(r.width * d)), h = Math.max(1, Math.round(r.height * d));
+    if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+    return { w: w, h: h, d: d };
+  }
+  var orb = document.getElementById("orb"), octx = orb.getContext("2d");
+  var parts = [];
+  for (var i = 0; i < 70; i++) parts.push({ a: Math.random() * 6.283, r: Math.random(), s: rnd(0.2, 0.9), p: Math.random() * 6.283 });
+  var NODES = ["Penser", "Agir", "Observer"];
+
+  function drawOrb(ts) {
+    var f = fit(orb), c = octx, w = f.w, h = f.h, cx = w / 2, cy = h / 2, R = Math.min(w, h) / 2;
+    var tier = V.tier, dead = tier === "dead";
+    var hue = dead ? "255,77,94" : tier === "critical" ? "255,110,110" : tier === "low_compute" ? "255,179,71" : "63,230,208";
+    var t = reduce ? 0 : ts / 1000;
+    c.clearRect(0, 0, w, h);
+    var ringR = R * 0.82;
+    c.lineWidth = 1.5 * f.d; c.strokeStyle = "rgba(" + hue + ",0.28)";
+    c.beginPath(); c.arc(cx, cy, ringR, 0, 6.283); c.stroke();
+    for (var k = 0; k < 3; k++) {
+      var ang = -Math.PI / 2 + k * 2.094 + t * 0.15;
+      var nx = cx + ringR * Math.cos(ang), ny = cy + ringR * Math.sin(ang), on = !dead && V.phase === k;
+      c.fillStyle = on ? "rgba(" + hue + ",1)" : "rgba(" + hue + ",0.35)";
+      c.beginPath(); c.arc(nx, ny, (on ? 7 : 5) * f.d, 0, 6.283); c.fill();
+      c.font = (12 * f.d) + "px 'IBM Plex Mono', monospace";
+      c.fillStyle = on ? "rgba(220,246,241,1)" : "rgba(127,170,164,0.9)"; c.textAlign = "center";
+      c.fillText(NODES[k], nx, ny + (ny < cy ? -14 : 22) * f.d);
+    }
+    var pulse = dead || reduce ? 0 : Math.sin(t * 1.6) * 0.02, cr = R * (0.46 + pulse) * (dead ? 0.92 : 1);
+    var g = c.createRadialGradient(cx, cy, cr * 0.1, cx, cy, cr * 1.5);
+    g.addColorStop(0, "rgba(" + hue + "," + (dead ? 0.12 : 0.28) + ")");
+    g.addColorStop(0.6, "rgba(" + hue + "," + (dead ? 0.05 : 0.1) + ")");
+    g.addColorStop(1, "rgba(" + hue + ",0)");
+    c.fillStyle = g; c.beginPath(); c.arc(cx, cy, cr * 1.5, 0, 6.283); c.fill();
+    c.lineWidth = 3 * f.d; c.strokeStyle = "rgba(" + hue + "," + (dead ? 0.35 : 0.8) + ")";
+    c.beginPath(); c.arc(cx, cy, cr, 0, 6.283); c.stroke();
+    c.fillStyle = "rgba(" + hue + ",0.07)"; c.fill();
+    if (!dead) {
+      var n = Math.max(6, Math.min(parts.length, Math.round(V.orbHealth * parts.length)));
+      for (var j = 0; j < n; j++) {
+        var q = parts[j], aa = q.a + t * q.s * 0.6, rr = cr * 0.82 * Math.sqrt(q.r);
+        var px = cx + rr * Math.cos(aa + q.p * 0.1), py = cy + rr * Math.sin(aa * 1.1 + q.p);
+        var dx = px - cx, dy = py - cy, dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist > cr * 0.9) { px = cx + dx * 0.9 * cr / dist; py = cy + dy * 0.9 * cr / dist; }
+        c.fillStyle = "rgba(" + hue + "," + (0.5 + 0.5 * Math.sin(t * 2 + q.p)) + ")";
+        c.beginPath(); c.arc(px, py, (1.6 + q.s * 1.6) * f.d, 0, 6.283); c.fill();
+      }
+    }
+    if (V.flash > 0) {
+      c.strokeStyle = "rgba(255,179,71," + V.flash * 0.8 + ")"; c.lineWidth = 3 * f.d;
+      c.beginPath(); c.arc(cx, cy, cr * (1.05 + (1 - V.flash) * 0.35), 0, 6.283); c.stroke();
+      V.flash = Math.max(0, V.flash - 0.03); if (mode === "demo") S.flash = V.flash;
+    }
+  }
+  var grid = document.getElementById("grid"), gctx = grid.getContext("2d");
+  function drawGrid() {
+    var f = fit(grid), c = gctx, N = 16, cell = f.w / N;
+    c.clearRect(0, 0, f.w, f.h);
+    for (var i = 0; i < MAX_AGENTS; i++) {
+      var x = (i % N) * cell + cell / 2, y = Math.floor(i / N) * cell + cell / 2, a = V.cells[i];
+      if (!a) { c.strokeStyle = "rgba(29,74,70,0.9)"; c.lineWidth = f.d; c.beginPath(); c.arc(x, y, cell * 0.2, 0, 6.283); c.stroke(); }
+      else if (a.alive) { c.fillStyle = "rgba(63,230,208," + (0.35 + 0.65 * a.k) + ")"; c.beginPath(); c.arc(x, y, cell * (0.22 + 0.12 * a.k), 0, 6.283); c.fill(); }
+      else { c.fillStyle = "#3a1a20"; c.beginPath(); c.arc(x, y, cell * 0.2, 0, 6.283); c.fill(); }
+    }
+  }
+
+  /* ================= Boucle ================= */
+  var acc = 0, last = 0;
+  function frame(ts) {
+    var dt = ts - last; last = ts; if (dt > 250) dt = 250;
+    if (mode === "demo" && running) {
+      acc += dt * speeds[speedIdx];
+      var guard = 0;
+      while (acc >= 700 && guard < 40) { acc -= 700; step(); guard++; }
+      if (guard) { render(); drawGrid(); }
+    }
+    drawOrb(ts);
+    requestAnimationFrame(frame);
+  }
+
+  /* ================= Commandes (démo) ================= */
+  var bPlay = document.getElementById("btn-play"), bSpeed = document.getElementById("btn-speed"),
+      bInc = document.getElementById("btn-income"), bReset = document.getElementById("btn-reset");
+  bPlay.addEventListener("click", function () { running = !running; bPlay.textContent = running ? "Pause" : "Reprendre"; bPlay.setAttribute("aria-pressed", String(!running)); });
+  bSpeed.addEventListener("click", function () { speedIdx = (speedIdx + 1) % speeds.length; bSpeed.textContent = "Vitesse ×" + speeds[speedIdx]; });
+  bInc.addEventListener("click", function () {
+    income = !income; bInc.textContent = income ? "Couper les revenus" : "Rétablir les revenus"; bInc.setAttribute("aria-pressed", String(!income));
+    addLog(income ? "Les clients reviennent." : "Plus aucun client. Le solde va baisser.", income ? "gain" : "loss"); syncDemo(); render();
+  });
+  bReset.addEventListener("click", function () { reset(); render(); drawGrid(); });
+
+  reset(); setMode("demo"); render(); drawGrid();
+  window.addEventListener("resize", drawGrid);
+  requestAnimationFrame(function (ts) { last = ts; frame(ts); });
+  poll(); setInterval(poll, 2000);
+})();
+</script>
